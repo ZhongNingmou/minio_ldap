@@ -1,0 +1,89 @@
+version: '3.7'
+
+networks:
+  minio-ldap:
+    name: minio-ldap
+    driver: bridge
+
+services:
+  minio:
+    #image: docker.io/bitnami/minio:2022
+    image: minio/minio:latest
+    command: minio server /data --console-address ":9001"
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio123
+      MINIO_IDENTITY_LDAP_SERVER_ADDR: openldap:389
+      MINIO_IDENTITY_LDAP_LOOKUP_BIND_DN: 'cn=admin,dc=ningmoulocal,dc=com'
+      MINIO_IDENTITY_LDAP_LOOKUP_BIND_PASSWORD: 'admin_pass'
+      MINIO_IDENTITY_LDAP_USER_DN_SEARCH_BASE_DN: 'dc=ningmoulocal,dc=com'
+      MINIO_IDENTITY_LDAP_USER_DN_SEARCH_FILTER: '(uid=%s)'
+      MINIO_IDENTITY_LDAP_GROUP_SEARCH_BASE_DN: 'ou=guott,dc=ningmoulocal,dc=com'
+      MINIO_IDENTITY_LDAP_GROUP_SEARCH_FILTER: '(&(objectclass=groupOfNames)(member=%d))'
+      MINIO_IDENTITY_LDAP_TLS_SKIP_VERIFY: 'on'
+      MINIO_IDENTITY_LDAP_SERVER_INSECURE: 'on'
+      MINIO_IDENTITY_LDAP_SERVER_STARTTLS: 'on'
+    volumes:
+      - 'minio_data:/data'
+    depends_on:
+      - openldap
+    networks:
+      - minio-ldap
+
+  mc:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc config host add miniohost http://minio:9000 minio minio123;
+      /usr/bin/mc alias set miniohost http://minio:9000;
+      /usr/bin/tail -f /etc/hosts;
+      "
+    networks:
+      - minio-ldap
+
+  openldap:
+    image: osixia/openldap:latest
+    container_name: openldap
+    environment:
+       LDAP_ORGANISATION: "ningmoulocal"
+       LDAP_DOMAIN: "ningmoulocal.com"
+       LDAP_BASE_DN: ""
+       LDAP_ADMIN_PASSWORD: "admin_pass"
+      #  LDAP_READONLY_USER: "false"
+      #  LDAP_READONLY_USER_USERNAME: "readonly"
+      #  LDAP_READONLY_USER_PASSWORD: "readonly"
+       LDAP_TLS_VERIFY_CLIENT: "try"
+    ports:
+      - 389:389
+      - 636:636
+    networks:
+      - minio-ldap
+
+  phpldapadmin:
+    image: osixia/phpldapadmin:latest
+    container_name: phpldapadmin
+    environment:
+      PHPLDAPADMIN_LDAP_HOSTS: openldap
+      PHPLDAPADMIN_HTTPS: 'false'
+    links:
+      - openldap
+    depends_on:
+      - openldap
+    ports:
+      - 10004:80
+    networks:
+      - minio-ldap
+
+
+volumes:
+  minio_data:
+    driver: local
+  ldap_data:
+    driver: local
+  ldap_conf:
+    driver: local
